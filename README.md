@@ -6,79 +6,90 @@
 > **⚠️ Important:** A2A is a work in progress (WIP) thus, in the near future there might be changes that are different from what demonstrated here.
 ----
 
-This document describes a web application demonstrating the integration of Agent2Agent (A2A), Google Agent Development Kit (ADK) for multi-agent orchestration with Model Context Protocol (MCP) clients. The application features a host agent coordinating tasks between remote agents that interact with various MCP servers to fulfill user requests.
-
-## Architecture
-
-The application utilizes a multi-agent architecture where a host agent delegates tasks to remote agents (Airbnb and Weather) based on the user's query. These agents then interact with corresponding MCP servers.
+This repository contains a complete, runnable demonstration of an Agent2Agent (A2A) deployment that combines Google ADK components, LangGraph orchestration, and Model Context Protocol (MCP) style remote agents. A host agent mediates user requests, consulting a weather specialist before forwarding lodging questions to an Airbnb-focused agent. The project ships with a Gradio front end so you can explore the full workflow locally.
 
 ![architecture](assets/A2A_multi_agent.png)
 
-### App UI
+## Repository layout
 
-![screenshot](assets/screenshot.png)
+* `src/host_agent/` – LangGraph-driven host that enforces the travel safety policy and serves the Gradio UI.
+* `src/airbnb_agent/` – Remote lodging specialist exposed as an A2A server backed by the OpenAI API.
+* `src/weather_agent/` – Remote weather specialist implemented with the A2A server stack and OpenAI.
+* `tests/` – Unit tests covering the routing graph and policy logic.
 
-## Setup and Deployment
+## Prerequisites
 
-### Prerequisites
+* Python 3.10 or newer (the project is tested with Python 3.13).
+* [uv](https://docs.astral.sh/uv/) or pip for dependency management.
+* An [OpenAI API key](https://platform.openai.com/account/api-keys) exported as `OPENAI_API_KEY` for the remote agents.
 
-Before running the application locally, ensure you have the following installed:
-
-1. **Node.js:** Required to run the Airbnb MCP server (if testing its functionality locally).
-2. **uv:** The Python package management tool used in this project. Follow the installation guide: [https://docs.astral.sh/uv/getting-started/installation/](https://docs.astral.sh/uv/getting-started/installation/)
-3. **Python 3.13** Python 3.13 is required to run a2a-sdk
-4. **set up .env**
-
-- Create a `.env` file in `airbnb_agent` and `weather_agent` folder with the following content:
-
-    ```bash
-    GOOGLE_API_KEY="your_api_key_here" 
-    ```
-
-- Create `.env` file in `host_agent/` folder with the following content:
-
-    ```bash
-    GOOGLE_GENAI_USE_VERTEXAI=TRUE
-    GOOGLE_CLOUD_PROJECT="your project"
-    GOOGLE_CLOUD_LOCATION=global
-    AIR_AGENT_URL=http://localhost:10002
-    WEA_AGENT_URL=http://localhost:10001
-    ```
-
-## 1. Run Airbnb Agent
-
-Run the airbnb agent server:
+## Install dependencies
 
 ```bash
-cd samples/python/agents/airbnb_planner_multiagent/airbnb_agent
-uv run .
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
-## 2. Run Weather Agent
+If you prefer pip, replace the last line with `pip install -r requirements.txt`.
 
-Open a new terminal and run the weather agent server:
+## Environment configuration
+
+Create a `.env` file in the repository root so every service shares the same settings:
 
 ```bash
-cd samples/python/agents/airbnb_planner_multiagent/weather_agent
-uv run .
+OPENAI_API_KEY="sk-your-key"
+
+# Optional overrides for the models used by each agent
+# OPENAI_MODEL="gpt-4o-mini"
+# OPENAI_AIRBNB_MODEL="gpt-4o-mini"
+# OPENAI_WEATHER_MODEL="gpt-4o-mini"
+
+# Host agent connections to the remote specialists
+AIR_AGENT_URL="http://localhost:10002"
+WEA_AGENT_URL="http://localhost:10001"
+
+# Optional: publish agent cards behind a different URL
+# APP_URL="https://your-public-url"
 ```
 
-## 3. Run Host Agent
+## Run the agents
 
-Open a new terminal and run the host agent server
+Start each service in its own terminal from the project root (or use the provided Makefile targets).
+
+1. **Weather specialist**
+   ```bash
+   python -m src.weather_agent
+   # equivalent Makefile helper: make weather_agent
+   ```
+2. **Airbnb specialist**
+   ```bash
+   python -m src.airbnb_agent
+   # Makefile helper: make airbnb_agent
+   ```
+3. **Host agent + UI**
+   ```bash
+   python -m src.host_agent
+   # Makefile helper: make host_agent
+   ```
+
+The host launches a Gradio chat UI on <http://127.0.0.1:11000>. Example prompts:
+
+* "Tell me about weather in LA, CA"
+* "Please find a room in LA, CA, June 20-25, 2025, two adults"
+
+Behind the scenes the host agent:
+
+1. Classifies the request with a deterministic policy.
+2. Contacts the weather specialist and records the forecast.
+3. Blocks or allows Airbnb suggestions based on hazardous conditions.
+4. Streams the combined reasoning back to the user.
+
+## Testing
 
 ```bash
-cd samples/python/agents/airbnb_planner_multiagent/host_agent
-uv run .
+python -m pytest
 ```
-
-## 4. Test at the UI
-
-Here are example questions:
-
-- "Tell me about weather in LA, CA"  
-
-- "Please find a room in LA, CA, June 20-25, 2025, two adults"
 
 ## References
 

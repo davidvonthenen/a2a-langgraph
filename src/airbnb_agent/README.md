@@ -1,14 +1,24 @@
-# Remote agent built by LangGraph
+# Airbnb remote agent
 
-## Getting started
+This service exposes an A2A-compatible agent that fabricates example Airbnb listings using the OpenAI API. The host agent contacts it once policy checks allow lodging suggestions.
 
-1. Create a `.env` file using the `example.env` file as a template.
+## Prerequisites
 
-2. Start the server
+* Install dependencies from the repository root.
+* Export `OPENAI_API_KEY`. Optionally override `OPENAI_MODEL` or `OPENAI_AIRBNB_MODEL` to target a specific chat model.
+* (Optional) Set `APP_URL` when publishing the service behind a reverse proxy so the generated agent card advertises the correct public URL.
 
-    ```bash
-    uv run .
-    ```
+## Run the server
+
+From the project root:
+
+```bash
+python -m src.airbnb_agent
+# or
+make airbnb_agent
+```
+
+The service listens on `http://0.0.0.0:10002` by default and serves an agent card describing the Airbnb search capability.
 
 ## Disclaimer
 

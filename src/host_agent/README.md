@@ -1,30 +1,30 @@
-# An example host agent frontend
+# Host agent front end
 
-This host agent now uses [LangGraph](https://github.com/langchain-ai/langgraph)
-to coordinate conversations between the weather and Airbnb specialists. The
-graph enforces a simple travel policy:
+This host agent uses [LangGraph](https://github.com/langchain-ai/langgraph) to coordinate conversations between the weather and Airbnb specialists. The routing graph enforces a simple travel policy:
 
-* Whenever a user asks about Airbnb lodging, the host first requests a forecast
-  from the weather agent.
-* Hazardous conditions automatically block downstream lodging suggestions and
-  the user is told why the plan was paused.
+* Airbnb lodging questions always trigger a weather check first.
+* Forecasts containing hazardous terms stop downstream lodging suggestions, and the user is told why the plan was paused.
 
-This makes the flow reproducible and easy to audit because every policy step is
-captured as a deterministic graph edge.
+Running through LangGraph keeps every decision reproducible and auditable because each policy branch is represented by an explicit edge in the graph.
 
-## Running the example
+## Prerequisites
 
-1. Create a `.env` file using the `example.env` file as a template.
+* Install the repository dependencies (see the root `README.md`).
+* Export `OPENAI_API_KEY` and launch the remote agents (`python -m src.weather_agent` and `python -m src.airbnb_agent`).
+* Optionally set `AIR_AGENT_URL` and `WEA_AGENT_URL` if the specialists are hosted somewhere other than `http://localhost:10001` and `http://localhost:10002`.
 
-2. Start the demo:
+## Running the host UI
 
-   ```bash
-   uv run .
-   ```
+From the project root:
 
-   Then open the Gradio UI and try a prompt such as:
+```bash
+python -m src.host_agent
+# or using the helper target:
+make host_agent
+```
 
-   > Plan a spring Airbnb stay in Denver for four friends.
+Then open the Gradio UI at <http://127.0.0.1:11000> and try a prompt such as:
 
-   The host will fetch a weather outlook first and only provide rental options
-   if the forecast looks safe.
+> Plan a spring Airbnb stay in Denver for four friends.
+
+The host fetches a weather outlook first and only shares rental ideas if the forecast looks safe.
