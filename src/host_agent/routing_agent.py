@@ -23,7 +23,10 @@ from a2a.types import (
     TextPart,
 )
 from dotenv import load_dotenv
-from langgraph.graph import END, StateGraph
+try:  # pragma: no cover - import fallback only exercised in offline environments
+    from langgraph.graph import END, StateGraph
+except ModuleNotFoundError:  # pragma: no cover - exercised when langgraph is absent
+    from .langgraph_stub import END, StateGraph  # type: ignore[no-redef]
 from typing_extensions import NotRequired
 
 from .policy_manager import PolicyClassification, TravelPolicyManager
