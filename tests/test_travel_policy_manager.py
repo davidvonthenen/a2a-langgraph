@@ -15,7 +15,7 @@ class TravelPolicyManagerTest(unittest.TestCase):
 
     def test_classify_rental_request_requires_weather(self) -> None:
         classification = self.manager.classify_request(
-            "Plan a long weekend Airbnb stay in Denver"
+            "Plan a long weekend stay in a hotel in Denver"
         )
         self.assertTrue(classification.need_rentals)
         self.assertTrue(

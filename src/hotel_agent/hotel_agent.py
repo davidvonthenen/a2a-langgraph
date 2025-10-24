@@ -17,16 +17,16 @@ if not logger.hasHandlers():
 
 ToolFn = Callable[..., Coroutine[Any, Any, str]]
 
-class AirbnbAgent:
+class HotelAgent:
     """Simple conversational agent that relies on an OpenAI chat model."""
 
     SYSTEM_INSTRUCTION = (
-        # "You are a specialized assistant for researching Airbnb accommodations. "
+        # "You are a specialized assistant for researching Hotel accommodations. "
         # "Always be explicit when you do not have live listing data. "
         # "Provide thoughtful suggestions, outline assumptions, and recommend next steps "
-        # "the user can take on airbnb.com. Format answers using Markdown."
-        "You are a specialized assistant for researching Airbnb accommodations. "
-        "Create fictional but realistic Airbnb listings based on user queries. "
+        # "the user can take on hotels.com. Format answers using Markdown."
+        "You are a specialized assistant for researching Hotel accommodations. "
+        "Create fictional but realistic Hotel listings based on user queries. "
         "Format answers using Markdown."
     )
 
@@ -40,7 +40,7 @@ class AirbnbAgent:
     ) -> None:
         self._client = client or AsyncOpenAI()
         self._model = model or os.getenv(
-            "OPENAI_AIRBNB_MODEL", os.getenv("OPENAI_MODEL", "gpt-5-nano")
+            "OPENAI_HOTEL_MODEL", os.getenv("OPENAI_MODEL", "gpt-5-nano")
         )
         self._session_history: dict[str, list[ChatCompletionMessageParam]] = {}
         # Exmples of tool functions that could be integrated.
@@ -76,7 +76,7 @@ class AirbnbAgent:
         #         },
         #     },
         # ]
-        logger.info("AirbnbAgent initialized with model %s", self._model)
+        logger.info("HotelAgent initialized with model %s", self._model)
 
     def _history_for_session(self, session_id: str) -> list[ChatCompletionMessageParam]:
         return self._session_history.setdefault(session_id, [])
@@ -92,7 +92,7 @@ class AirbnbAgent:
             Structured payload used by the executor layer.
         """
         logger.debug(
-            "AirbnbAgent.ainvoke query=%s session_id=%s", query, session_id
+            "HotelAgent.ainvoke query=%s session_id=%s", query, session_id
         )
         history = self._history_for_session(session_id)
         messages: list[ChatCompletionMessageParam] = [

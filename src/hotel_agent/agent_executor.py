@@ -1,4 +1,4 @@
-"""A2A executor wrapper for the Airbnb agent."""
+"""A2A executor wrapper for the Hotel agent."""
 
 from __future__ import annotations
 
@@ -14,17 +14,17 @@ from a2a.types import (
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 
-from .airbnb_agent import AirbnbAgent
+from .hotel_agent import HotelAgent
 
 logger = logging.getLogger(__name__)
 
 
-class AirbnbAgentExecutor(AgentExecutor):
-    """Executes the Airbnb agent for a2a requests."""
+class HotelAgentExecutor(AgentExecutor):
+    """Executes the Hotel agent for a2a requests."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.agent = AirbnbAgent()
+        self.agent = HotelAgent()
 
     async def execute(
         self, context: RequestContext, event_queue: EventQueue

@@ -51,10 +51,10 @@ class HostGraphState(TypedDict, total=False):
     response_chunks: list[str]
     policy_notes: list[str]
     need_weather: bool
-    need_airbnb: bool
+    need_hotel: bool
     location_hint: NotRequired[str | None]
     weather_output: NotRequired[str | None]
-    airbnb_output: NotRequired[str | None]
+    hotel_output: NotRequired[str | None]
     policy_route: NotRequired[str]
     final_decision: NotRequired[str | None]
 
@@ -74,7 +74,7 @@ class RoutingAgent:
         self._policy_manager = policy_manager or TravelPolicyManager()
         self._graph = self._build_graph()
         self._weather_agent_name: str | None = None
-        self._airbnb_agent_name: str | None = None
+        self._hotel_agent_name: str | None = None
         logger.info("RoutingAgent initialized with LangGraph policy orchestrator")
 
     async def _async_init_components(
@@ -142,7 +142,7 @@ class RoutingAgent:
         graph.add_node("classify_request", self._classify_request)
         graph.add_node("evaluate_policy", self._evaluate_policy)
         graph.add_node("fetch_weather", self._fetch_weather)
-        graph.add_node("fetch_airbnb", self._fetch_airbnb)
+        graph.add_node("fetch_hotel", self._fetch_hotel)
         graph.add_node("compose_response", self._compose_response)
 
         graph.set_entry_point("classify_request")
@@ -152,13 +152,13 @@ class RoutingAgent:
             self._route_policy,
             {
                 "fetch_weather": "fetch_weather",
-                "fetch_airbnb": "fetch_airbnb",
-                "deny_airbnb": "compose_response",
+                "fetch_hotel": "fetch_hotel",
+                "deny_hotel": "compose_response",
                 "respond": "compose_response",
             },
         )
         graph.add_edge("fetch_weather", "evaluate_policy")
-        graph.add_edge("fetch_airbnb", "compose_response")
+        graph.add_edge("fetch_hotel", "compose_response")
         graph.add_edge("compose_response", END)
 
         return graph.compile()
@@ -232,13 +232,13 @@ class RoutingAgent:
             "weather" in lowered_name or "weather" in lowered_description
         ):
             self._weather_agent_name = card.name
-        if self._airbnb_agent_name is None and (
-            "airbnb" in lowered_name
+        if self._hotel_agent_name is None and (
+            "hotel" in lowered_name
             or "rental" in lowered_name
-            or "airbnb" in lowered_description
+            or "hotel" in lowered_description
             or "rental" in lowered_description
         ):
-            self._airbnb_agent_name = card.name
+            self._hotel_agent_name = card.name
 
     def _history_for_session(self, session_id: str) -> list[dict[str, str]]:
         return self._session_history.setdefault(session_id, [])
@@ -253,7 +253,7 @@ class RoutingAgent:
             policy_notes.append(classification.note)
         if classification.need_rentals:
             response_chunks.append(
-                "Policy check: I'll review the weather before sharing Airbnb ideas."
+                "Policy check: I'll review the weather before sharing hotel ideas."
             )
         elif classification.need_weather:
             response_chunks.append(
@@ -266,7 +266,7 @@ class RoutingAgent:
             "response_chunks": response_chunks,
             "policy_notes": policy_notes,
             "need_weather": classification.need_weather,
-            "need_airbnb": classification.need_rentals,
+            "need_hotel": classification.need_rentals,
             "location_hint": classification.location_hint,
         }
 
@@ -293,7 +293,7 @@ class RoutingAgent:
                 "policy_route": "fetch_weather",
             }
 
-        if state.get("need_airbnb"):
+        if state.get("need_hotel"):
             weather_output = state.get("weather_output") or ""
             if not weather_output:
                 policy_notes.append(
@@ -306,32 +306,32 @@ class RoutingAgent:
                 }
             if self._policy_manager.should_block_rentals(weather_output):
                 policy_notes.append(
-                    "Policy: hazardous conditions detected, pausing Airbnb guidance."
+                    "Policy: hazardous conditions detected, pausing hotel guidance."
                 )
                 return {
                     **state,
                     "policy_notes": policy_notes,
-                    "policy_route": "deny_airbnb",
-                    "final_decision": "deny_airbnb",
+                    "policy_route": "deny_hotel",
+                    "final_decision": "deny_hotel",
                 }
-            if not self._airbnb_agent_name:
+            if not self._hotel_agent_name:
                 policy_notes.append(
-                    "Policy fallback: Airbnb specialist unavailable, sharing weather only."
+                    "Policy fallback: Hotel specialist unavailable, sharing weather only."
                 )
                 return {
                     **state,
                     "policy_notes": policy_notes,
                     "policy_route": "respond",
-                    "final_decision": "allow_airbnb",
+                    "final_decision": "allow_hotel",
                 }
             policy_notes.append(
-                "Policy: weather looks acceptable, gathering Airbnb suggestions."
+                "Policy: weather looks acceptable, gathering hotel suggestions."
             )
             return {
                 **state,
                 "policy_notes": policy_notes,
-                "policy_route": "fetch_airbnb",
-                "final_decision": "allow_airbnb",
+                "policy_route": "fetch_hotel",
+                "final_decision": "allow_hotel",
             }
 
         return {
@@ -377,57 +377,57 @@ class RoutingAgent:
             "weather_output": weather_output,
         }
 
-    async def _fetch_airbnb(self, state: HostGraphState) -> HostGraphState:
+    async def _fetch_hotel(self, state: HostGraphState) -> HostGraphState:
         responses = list(state.get("response_chunks", []))
         session_id = state["session_id"]
-        agent_name = self._airbnb_agent_name
+        agent_name = self._hotel_agent_name
         if not agent_name:
-            responses.append("Airbnb specialist is offline right now.")
-            return {**state, "response_chunks": responses, "airbnb_output": ""}
+            responses.append("Hotel specialist is offline right now.")
+            return {**state, "response_chunks": responses, "hotel_output": ""}
 
         task_prompt = (
             "The host assistant cleared the weather policy check and now needs "
-            "fictional Airbnb ideas. Use the weather summary below to tailor your reply.\n"
+            "fictional hotel ideas. Use the weather summary below to tailor your reply.\n"
             f"Weather summary:{os.linesep}{state.get('weather_output', 'Not available')}\n"
             f"User request:{os.linesep}{state['user_message']}"
         )
         task = await self._send_message(agent_name, task_prompt, session_id)
-        airbnb_output = self._extract_task_output(task)
+        hotel_output = self._extract_task_output(task)
 
-        if airbnb_output:
-            responses.append(f"Airbnb ideas:\n{airbnb_output.strip()}")
+        if hotel_output:
+            responses.append(f"Hotel ideas:\n{hotel_output.strip()}")
         else:
-            responses.append("The Airbnb specialist did not return any options.")
+            responses.append("The Hotel specialist did not return any options.")
 
         return {
             **state,
             "response_chunks": responses,
-            "airbnb_output": airbnb_output,
+            "hotel_output": hotel_output,
         }
 
     def _compose_response(self, state: HostGraphState) -> HostGraphState:
         responses = list(state.get("response_chunks", []))
         policy_notes = state.get("policy_notes", [])
-        need_airbnb = state.get("need_airbnb", False)
+        need_hotel = state.get("need_hotel", False)
         final_decision = state.get("final_decision")
         weather_output = state.get("weather_output")
 
         summary_lines: list[str] = []
-        if need_airbnb and final_decision == "deny_airbnb":
+        if need_hotel and final_decision == "deny_hotel":
             summary_lines.append(
-                "Because the forecast includes hazardous conditions, I'm pausing Airbnb "
+                "Because the forecast includes hazardous conditions, I'm pausing hotel "
                 "recommendations. Consider alternate dates or destinations."
             )
-        elif need_airbnb and state.get("airbnb_output"):
+        elif need_hotel and state.get("hotel_output"):
             summary_lines.append(
                 "Here are some rental ideas that align with the current forecast."
             )
-            summary_lines.append(state["airbnb_output"].strip())
+            summary_lines.append(state["hotel_output"].strip())
         elif weather_output:
             summary_lines.append("Let me know if you need help planning activities around this weather outlook.")
         else:
             summary_lines.append(
-                "I can coordinate weather checks and Airbnb planning whenever you're ready."
+                "I can coordinate weather checks and hotel planning whenever you're ready."
             )
 
         if policy_notes:

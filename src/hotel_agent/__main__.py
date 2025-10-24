@@ -1,4 +1,4 @@
-"""Command line entrypoint for running the Airbnb agent service."""
+"""Command line entrypoint for running the Hotel agent service."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from dotenv import load_dotenv
 
-from .agent_executor import AirbnbAgentExecutor
-from .airbnb_agent import AirbnbAgent
+from .agent_executor import HotelAgentExecutor
+from .hotel_agent import HotelAgent
 
 load_dotenv(override=True)
 
@@ -23,7 +23,7 @@ DEFAULT_LOG_LEVEL = "info"
 
 
 def main(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, log_level: str = DEFAULT_LOG_LEVEL) -> None:
-    agent_executor = AirbnbAgentExecutor()
+    agent_executor = HotelAgentExecutor()
     request_handler = DefaultRequestHandler(
         agent_executor=agent_executor, task_store=InMemoryTaskStore()
     )
@@ -42,10 +42,10 @@ def main(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, log_level: str = DE
 def get_agent_card(host: str, port: int) -> AgentCard:
     capabilities = AgentCapabilities(streaming=True, push_notifications=True)
     skill = AgentSkill(
-        id="airbnb_search",
-        name="Search airbnb accommodation",
+        id="hotel_search",
+        name="Search hotel accommodation",
         description="Helps with accommodation search",
-        tags=["airbnb accommodation"],
+        tags=["hotel accommodation"],
         examples=[
             "Please find a room in LA, CA, April 15, 2025, checkout date is april 18, 2 adults"
         ],
@@ -53,12 +53,12 @@ def get_agent_card(host: str, port: int) -> AgentCard:
     app_url = os.environ.get("APP_URL", f"http://{host}:{port}")
 
     return AgentCard(
-        name="Airbnb Agent",
+        name="Hotel Agent",
         description="Helps with searching accommodation",
         url=app_url,
         version="1.0.0",
-        default_input_modes=AirbnbAgent.SUPPORTED_CONTENT_TYPES,
-        default_output_modes=AirbnbAgent.SUPPORTED_CONTENT_TYPES,
+        default_input_modes=HotelAgent.SUPPORTED_CONTENT_TYPES,
+        default_output_modes=HotelAgent.SUPPORTED_CONTENT_TYPES,
         capabilities=capabilities,
         skills=[skill],
     )
