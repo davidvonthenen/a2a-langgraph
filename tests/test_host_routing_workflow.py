@@ -99,6 +99,7 @@ def test_airbnb_allowed_for_sunny_long_beach() -> None:
         responses
     ), "Clear weather should allow the Airbnb specialist to respond."
     assert "Here are some rental ideas" in responses[-1]
+    assert "Ocean Breeze loft" in responses[-1]
 
 
 def test_session_recovers_after_blocked_destination() -> None:
@@ -130,3 +131,4 @@ def test_session_recovers_after_blocked_destination() -> None:
         long_beach_responses
     ), "Once a safe forecast arrives, the agent should surface rentals."
     assert "Here are some rental ideas" in long_beach_responses[-1]
+    assert "Sunny Surf bungalow" in long_beach_responses[-1]

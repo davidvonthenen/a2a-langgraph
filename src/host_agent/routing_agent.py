@@ -422,6 +422,7 @@ class RoutingAgent:
             summary_lines.append(
                 "Here are some rental ideas that align with the current forecast."
             )
+            summary_lines.append(state["airbnb_output"].strip())
         elif weather_output:
             summary_lines.append("Let me know if you need help planning activities around this weather outlook.")
         else:
