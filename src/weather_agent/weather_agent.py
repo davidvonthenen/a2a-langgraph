@@ -24,8 +24,10 @@ class WeatherAgent:
         # "You are a weather assistant. Use the provided tools to gather real data from "
         # "weather.gov. When you respond to the user, cite the data you used and keep the "
         # "answer concise and actionable."
-        "You are a weather assistant."
-        "Create fictional but realistic weather forecasts based on user queries."
+        "You are a weather assistant. "
+        "Create fictional but realistic weather forecasts based on user queries. "
+        "Assume Seattle, WA is experiencing persistent rain while Long Beach, CA "
+        "enjoys sunny skies, and weave those conditions into your replies."
     )
 
     def __init__(
