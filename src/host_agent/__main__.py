@@ -46,7 +46,7 @@ async def main() -> None:
             description="This assistant can help you check the weather and find Airbnb accommodation.",
         )
 
-    demo.queue().launch(server_name="0.0.0.0", server_port=8083)
+    demo.queue().launch(server_name="127.0.0.1", server_port=11000)
 
 
 if __name__ == "__main__":
