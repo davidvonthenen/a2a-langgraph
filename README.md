@@ -6,14 +6,14 @@
 > **⚠️ Important:** A2A is a work in progress (WIP) thus, in the near future there might be changes that are different from what demonstrated here.
 ----
 
-This repository contains a complete, runnable demonstration of an Agent2Agent (A2A) deployment that combines Google ADK components, LangGraph orchestration, and Model Context Protocol (MCP) style remote agents. A host agent mediates user requests, consulting a weather specialist before forwarding lodging questions to an Airbnb-focused agent. The project ships with a Gradio front end so you can explore the full workflow locally.
+This repository contains a complete, runnable demonstration of an Agent2Agent (A2A) deployment that combines Google ADK components, LangGraph orchestration, and Model Context Protocol (MCP) style remote agents. A host agent mediates user requests, consulting a weather specialist before forwarding lodging questions to an hotel agent. The project ships with a Gradio front end so you can explore the full workflow locally.
 
 ![architecture](assets/A2A_multi_agent.png)
 
 ## Repository layout
 
 * `src/host_agent/` – LangGraph-driven host that enforces the travel safety policy and serves the Gradio UI.
-* `src/airbnb_agent/` – Remote lodging specialist exposed as an A2A server backed by the OpenAI API.
+* `src/hotel_agent/` – Remote lodging specialist exposed as an A2A server backed by the OpenAI API.
 * `src/weather_agent/` – Remote weather specialist implemented with the A2A server stack and OpenAI.
 * `tests/` – Unit tests covering the routing graph and policy logic.
 
@@ -41,9 +41,9 @@ Create a `.env` file in the repository root so every service shares the same set
 OPENAI_API_KEY="sk-your-key"
 
 # Optional overrides for the models used by each agent
-# OPENAI_MODEL="gpt-4o-mini"
-# OPENAI_AIRBNB_MODEL="gpt-4o-mini"
-# OPENAI_WEATHER_MODEL="gpt-4o-mini"
+# OPENAI_MODEL="gpt-5-nano"
+# OPENAI_HOTEL_MODEL="gpt-5-nano"
+# OPENAI_WEATHER_MODEL="gpt-5-nano"
 
 # Host agent connections to the remote specialists
 AIR_AGENT_URL="http://localhost:10002"
@@ -62,10 +62,10 @@ Start each service in its own terminal from the project root (or use the provide
    python -m src.weather_agent
    # equivalent Makefile helper: make weather_agent
    ```
-2. **Airbnb specialist**
+2. **Hotel specialist**
    ```bash
-   python -m src.airbnb_agent
-   # Makefile helper: make airbnb_agent
+   python -m src.hotel_agent
+   # Makefile helper: make hotel_agent
    ```
 3. **Host agent + UI**
    ```bash
@@ -82,7 +82,7 @@ Behind the scenes the host agent:
 
 1. Classifies the request with a deterministic policy.
 2. Contacts the weather specialist and records the forecast.
-3. Blocks or allows Airbnb suggestions based on hazardous conditions.
+3. Blocks or allows hotel suggestions based on hazardous conditions.
 4. Streams the combined reasoning back to the user.
 
 ## Testing

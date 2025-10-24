@@ -1,11 +1,11 @@
-# Airbnb remote agent
+# Hotel remote agent
 
-This service exposes an A2A-compatible agent that fabricates example Airbnb listings using the OpenAI API. The host agent contacts it once policy checks allow lodging suggestions.
+This service exposes an A2A-compatible agent that fabricates example Hotel listings using the OpenAI API. The host agent contacts it once policy checks allow lodging suggestions.
 
 ## Prerequisites
 
 * Install dependencies from the repository root.
-* Export `OPENAI_API_KEY`. Optionally override `OPENAI_MODEL` or `OPENAI_AIRBNB_MODEL` to target a specific chat model.
+* Export `OPENAI_API_KEY`. Optionally override `OPENAI_MODEL` or `OPENAI_HOTEL_MODEL` to target a specific chat model.
 * (Optional) Set `APP_URL` when publishing the service behind a reverse proxy so the generated agent card advertises the correct public URL.
 
 ## Run the server
@@ -13,12 +13,12 @@ This service exposes an A2A-compatible agent that fabricates example Airbnb list
 From the project root:
 
 ```bash
-python -m src.airbnb_agent
+python -m src.hotel_agent
 # or
-make airbnb_agent
+make hotel_agent
 ```
 
-The service listens on `http://0.0.0.0:10002` by default and serves an agent card describing the Airbnb search capability.
+The service listens on `http://0.0.0.0:10002` by default and serves an agent card describing the Hotel search capability.
 
 ## Disclaimer
 

@@ -15,7 +15,7 @@ class StubRoutingAgent(RoutingAgent):
     def __init__(self, responses: dict[str, list[str]]) -> None:
         super().__init__(policy_manager=TravelPolicyManager())
         self._weather_agent_name = "Weather Specialist"
-        self._airbnb_agent_name = "Airbnb Specialist"
+        self._hotel_agent_name = "Hotel Specialist"
         self._responses: dict[str, list[str]] = {
             name: list(outputs) for name, outputs in responses.items()
         }
@@ -52,11 +52,11 @@ def _run_agent(agent: RoutingAgent, message: str, session_id: str) -> list[str]:
     return asyncio.run(agent.handle_user_message(message, session_id=session_id))
 
 
-def _has_airbnb_suggestions(chunks: list[str]) -> bool:
-    return any(chunk.startswith("Airbnb ideas:") for chunk in chunks)
+def _has_hotel_suggestions(chunks: list[str]) -> bool:
+    return any(chunk.startswith("hotel ideas:") for chunk in chunks)
 
 
-def test_airbnb_blocked_for_rainy_seattle() -> None:
+def test_hotel_blocked_for_rainy_seattle() -> None:
     agent = StubRoutingAgent(
         {
             "Weather Specialist": [
@@ -67,23 +67,23 @@ def test_airbnb_blocked_for_rainy_seattle() -> None:
 
     responses = _run_agent(
         agent,
-        "I'd like to book an Airbnb in Seattle, WA this weekend.",
+        "I'd like to book a hotel in Seattle, WA this weekend.",
         session_id="session-block",
     )
 
-    assert not _has_airbnb_suggestions(
+    assert not _has_hotel_suggestions(
         responses
     ), "Hazardous weather should block rental suggestions."
     assert "hazardous conditions" in responses[-1]
 
 
-def test_airbnb_allowed_for_sunny_long_beach() -> None:
+def test_hotel_allowed_for_sunny_long_beach() -> None:
     agent = StubRoutingAgent(
         {
             "Weather Specialist": [
                 "Warm sunshine and gentle breezes over Long Beach, CA all weekend.",
             ],
-            "Airbnb Specialist": [
+            "Hotel Specialist": [
                 "Consider the Ocean Breeze loft a short walk from the Long Beach pier.",
             ],
         }
@@ -91,13 +91,13 @@ def test_airbnb_allowed_for_sunny_long_beach() -> None:
 
     responses = _run_agent(
         agent,
-        "Help me secure an Airbnb in Long Beach, CA.",
+        "Help me secure a hotel in Long Beach, CA.",
         session_id="session-allow",
     )
 
-    assert _has_airbnb_suggestions(
+    assert _has_hotel_suggestions(
         responses
-    ), "Clear weather should allow the Airbnb specialist to respond."
+    ), "Clear weather should allow the Hotel specialist to respond."
     assert "Here are some rental ideas" in responses[-1]
     assert "Ocean Breeze loft" in responses[-1]
 
@@ -109,7 +109,7 @@ def test_session_recovers_after_blocked_destination() -> None:
                 "Severe storm warning with dangerous flooding expected for Seattle.",
                 "Bright sunshine and calm skies over Long Beach, CA.",
             ],
-            "Airbnb Specialist": [
+            "Hotel Specialist": [
                 "Try the Sunny Surf bungalow near Long Beach's waterfront.",
             ],
         }
@@ -117,17 +117,17 @@ def test_session_recovers_after_blocked_destination() -> None:
 
     seattle_responses = _run_agent(
         agent,
-        "Book an Airbnb in Seattle, WA for next Friday.",
+        "Book a hotel in Seattle, WA for next Friday.",
         session_id="session-switch",
     )
     assert "hazardous conditions" in seattle_responses[-1]
 
     long_beach_responses = _run_agent(
         agent,
-        "Okay, how about an Airbnb in Long Beach, CA instead?",
+        "Okay, how about a hotel in Long Beach, CA instead?",
         session_id="session-switch",
     )
-    assert _has_airbnb_suggestions(
+    assert _has_hotel_suggestions(
         long_beach_responses
     ), "Once a safe forecast arrives, the agent should surface rentals."
     assert "Here are some rental ideas" in long_beach_responses[-1]

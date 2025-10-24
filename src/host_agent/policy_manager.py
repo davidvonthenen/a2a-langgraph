@@ -21,7 +21,7 @@ class TravelPolicyManager:
     """Encapsulates deterministic policy checks for the host agent.
 
     The host agent enforces a simple but illustrative policy: when users ask
-    about Airbnb rentals we must first obtain a weather assessment for the
+    about hotel rentals we must first obtain a weather assessment for the
     destination. Hazardous forecasts block downstream rental suggestions.
     """
 
@@ -33,7 +33,7 @@ class TravelPolicyManager:
         "snow",
     )
     RENTAL_KEYWORDS = (
-        "airbnb",
+        "hotel",
         "stay",
         "rental",
         "lodging",
@@ -80,7 +80,7 @@ class TravelPolicyManager:
         note: Optional[str] = None
         if need_rentals:
             note = (
-                "Policy: Airbnb planning must include a fresh weather review "
+                "Policy: hotel planning must include a fresh weather review "
                 "before sharing listings."
             )
         elif need_weather:
