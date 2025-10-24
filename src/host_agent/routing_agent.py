@@ -1,4 +1,4 @@
-"""Routing agent backed by the OpenAI SDK."""
+"""Routing agent orchestrated by a LangGraph policy."""
 
 from __future__ import annotations
 
@@ -6,12 +6,14 @@ import json
 import logging
 import os
 import uuid
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 from a2a.client import A2ACardResolver
 from a2a.types import (
     AgentCard,
+    DataPart,
+    FilePart,
     MessageSendParams,
     Part,
     SendMessageRequest,
@@ -19,13 +21,12 @@ from a2a.types import (
     SendMessageSuccessResponse,
     Task,
     TextPart,
-    DataPart,
-    FilePart,
 )
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from langgraph.graph import END, StateGraph
+from typing_extensions import NotRequired
 
+from .policy_manager import PolicyClassification, TravelPolicyManager
 from .remote_agent_connection import RemoteAgentConnections
 
 load_dotenv()
@@ -39,30 +40,39 @@ if not logger.hasHandlers():
 DEFAULT_HTTP_TIMEOUT = httpx.Timeout(120.0, connect=30.0)
 
 
-class RoutingAgent:
-    """Delegates user requests to remote agents using OpenAI for planning."""
+class HostGraphState(TypedDict, total=False):
+    """State container passed between LangGraph nodes."""
 
-    SYSTEM_PROMPT = (
-        "You are a routing assistant coordinating specialized agents. "
-        "Decide whether to answer the user directly or delegate to one of the remote agents. "
-        "Respond with JSON only."
-    )
+    user_message: str
+    session_id: str
+    response_chunks: list[str]
+    policy_notes: list[str]
+    need_weather: bool
+    need_airbnb: bool
+    location_hint: NotRequired[str | None]
+    weather_output: NotRequired[str | None]
+    airbnb_output: NotRequired[str | None]
+    policy_route: NotRequired[str]
+    final_decision: NotRequired[str | None]
+
+
+class RoutingAgent:
+    """Delegates user requests to remote agents using a LangGraph policy."""
 
     def __init__(
         self,
         *,
-        client: AsyncOpenAI | None = None,
-        model: str | None = None,
+        policy_manager: TravelPolicyManager | None = None,
     ) -> None:
         self.remote_agent_connections: dict[str, RemoteAgentConnections] = {}
         self.cards: dict[str, AgentCard] = {}
-        self._client = client or AsyncOpenAI()
-        self._model = model or os.getenv(
-            "OPENAI_ROUTER_MODEL", os.getenv("OPENAI_MODEL", "gpt-5-nano")
-        )
-        self._session_history: dict[str, list[ChatCompletionMessageParam]] = {}
+        self._session_history: dict[str, list[dict[str, str]]] = {}
         self._session_context_ids: dict[tuple[str, str], str] = {}
-        logger.info("RoutingAgent initialized with model %s", self._model)
+        self._policy_manager = policy_manager or TravelPolicyManager()
+        self._graph = self._build_graph()
+        self._weather_agent_name: str | None = None
+        self._airbnb_agent_name: str | None = None
+        logger.info("RoutingAgent initialized with LangGraph policy orchestrator")
 
     async def _async_init_components(
         self, remote_agent_addresses: list[str]
@@ -83,6 +93,7 @@ class RoutingAgent:
                 )
                 self.remote_agent_connections[card.name] = remote_connection
                 self.cards[card.name] = card
+                self._maybe_track_specialist(card)
 
     @classmethod
     async def create(
@@ -104,75 +115,50 @@ class RoutingAgent:
     async def handle_user_message(
         self, message: str, session_id: str
     ) -> list[str]:
-        plan = await self._plan_action(message, session_id)
-        responses: list[str] = []
-
-        action = plan.get("action")
-        if action == "delegate":
-            agent_name = plan.get("agent")
-            task_text = plan.get("task")
-            if not agent_name or not task_text:
-                fallback = (
-                    "I could not determine which specialist to use. "
-                    "Could you rephrase your request?"
-                )
-                self._append_to_history(session_id, fallback)
-                return [fallback]
-
-            responses.append(f"Delegating to {agent_name}...")
-            task = await self._send_message(agent_name, task_text, session_id)
-            agent_output = self._extract_task_output(task)
-            final_message = await self._summarize_response(
-                message, agent_name, agent_output, session_id
-            )
-            responses.append(final_message)
-            return responses
-
-        if action == "ask_user":
-            question = plan.get("question") or "Could you share more details?"
-            self._append_to_history(session_id, question)
-            responses.append(question)
-            return responses
-
-        reply = plan.get("message") or "I'm not sure how to help with that."
-        self._append_to_history(session_id, reply)
-        responses.append(reply)
-        return responses
-
-    async def _plan_action(self, message: str, session_id: str) -> dict[str, Any]:
-        agents_description = "\n".join(
-            f"- {card.name}: {card.description or 'No description provided.'}"
-            for card in self.cards.values()
-        ) or "- No remote agents available"
-        system_prompt = (
-            f"{self.SYSTEM_PROMPT}\n\nAvailable agents:\n{agents_description}\n\n"
-            "Respond with one of the following JSON structures:\n"
-            '{"action": "delegate", "agent": "Agent Name", "task": "Detailed task"}\n'
-            '{"action": "ask_user", "question": "Clarifying question"}\n'
-            '{"action": "respond", "message": "Assistant reply"}'
-        )
-
         history = self._history_for_session(session_id)
-        messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": system_prompt},
-            *history,
-            {"role": "user", "content": message},
-        ]
         history.append({"role": "user", "content": message})
 
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            # temperature=0.2, # BAD
-        )
-        raw_content = response.choices[0].message.content or "{}"
-        try:
-            plan = json.loads(raw_content)
-        except json.JSONDecodeError:
-            logger.error("Router response was not valid JSON: %s", raw_content)
-            plan = {"action": "respond", "message": raw_content}
+        initial_state: HostGraphState = {
+            "user_message": message,
+            "session_id": session_id,
+        }
+        final_state = await self._graph.ainvoke(initial_state)
+        responses = final_state.get("response_chunks", [])
 
-        return plan
+        if not responses:
+            fallback = "I'm not sure how to help with that just yet."
+            history.append({"role": "assistant", "content": fallback})
+            return [fallback]
+
+        history.extend({"role": "assistant", "content": text} for text in responses)
+        return responses
+
+    def _build_graph(self):
+        graph = StateGraph(HostGraphState)
+
+        graph.add_node("classify_request", self._classify_request)
+        graph.add_node("evaluate_policy", self._evaluate_policy)
+        graph.add_node("fetch_weather", self._fetch_weather)
+        graph.add_node("fetch_airbnb", self._fetch_airbnb)
+        graph.add_node("compose_response", self._compose_response)
+
+        graph.set_entry_point("classify_request")
+        graph.add_edge("classify_request", "evaluate_policy")
+        graph.add_conditional_edges(
+            "evaluate_policy",
+            self._route_policy,
+            {
+                "fetch_weather": "fetch_weather",
+                "fetch_airbnb": "fetch_airbnb",
+                "deny_airbnb": "compose_response",
+                "respond": "compose_response",
+            },
+        )
+        graph.add_edge("fetch_weather", "evaluate_policy")
+        graph.add_edge("fetch_airbnb", "compose_response")
+        graph.add_edge("compose_response", END)
+
+        return graph.compile()
 
     async def _send_message(
         self, agent_name: str, task: str, session_id: str
@@ -214,49 +200,6 @@ class RoutingAgent:
         self._session_context_ids[context_key] = result.context_id
         return result
 
-    async def _summarize_response(
-        self,
-        user_message: str,
-        agent_name: str,
-        agent_output: str,
-        session_id: str,
-    ) -> str:
-        summary_prompt = (
-            "You are the host assistant. Summarize the remote agent's reply for the user. "
-            "If the remote agent output is empty, politely inform the user that the specialist "
-            "did not return any information."
-        )
-        messages = [
-            {"role": "system", "content": summary_prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"Original user request:\n{user_message}\n\n"
-                    f"Remote agent ({agent_name}) responded:\n{agent_output or 'No response'}"
-                ),
-            },
-        ]
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            # temperature=0.2, # BAD
-        )
-        content = (
-            response.choices[0].message.content
-            or "The remote agent did not provide any additional details."
-        )
-        self._append_to_history(session_id, content)
-        return content
-
-    def _history_for_session(
-        self, session_id: str
-    ) -> list[ChatCompletionMessageParam]:
-        return self._session_history.setdefault(session_id, [])
-
-    def _append_to_history(self, session_id: str, content: str) -> None:
-        history = self._history_for_session(session_id)
-        history.append({"role": "assistant", "content": content})
-
     def _extract_task_output(self, task: Task | None) -> str:
         if task is None or task.status is None or task.status.message is None:
             return ""
@@ -275,6 +218,221 @@ class RoutingAgent:
         if isinstance(root, FilePart):
             return f"Received file content ({root.file.mime_type or 'unknown mime type'})."
         return ""
+
+
+    def _maybe_track_specialist(self, card: AgentCard) -> None:
+        """Record which remote cards correspond to weather or rental experts."""
+
+        lowered_name = card.name.lower()
+        lowered_description = (card.description or "").lower()
+        if self._weather_agent_name is None and (
+            "weather" in lowered_name or "weather" in lowered_description
+        ):
+            self._weather_agent_name = card.name
+        if self._airbnb_agent_name is None and (
+            "airbnb" in lowered_name
+            or "rental" in lowered_name
+            or "airbnb" in lowered_description
+            or "rental" in lowered_description
+        ):
+            self._airbnb_agent_name = card.name
+
+    def _history_for_session(self, session_id: str) -> list[dict[str, str]]:
+        return self._session_history.setdefault(session_id, [])
+
+    def _classify_request(self, state: HostGraphState) -> HostGraphState:
+        classification: PolicyClassification = self._policy_manager.classify_request(
+            state["user_message"]
+        )
+        response_chunks = []
+        policy_notes = []
+        if classification.note:
+            policy_notes.append(classification.note)
+        if classification.need_rentals:
+            response_chunks.append(
+                "Policy check: I'll review the weather before sharing Airbnb ideas."
+            )
+        elif classification.need_weather:
+            response_chunks.append(
+                "Policy check: looping in the weather specialist for you."
+            )
+
+        return {
+            "session_id": state["session_id"],
+            "user_message": state["user_message"],
+            "response_chunks": response_chunks,
+            "policy_notes": policy_notes,
+            "need_weather": classification.need_weather,
+            "need_airbnb": classification.need_rentals,
+            "location_hint": classification.location_hint,
+        }
+
+    def _evaluate_policy(self, state: HostGraphState) -> HostGraphState:
+        policy_notes = list(state.get("policy_notes", []))
+
+        if state.get("need_weather") and not state.get("weather_output"):
+            if not self._weather_agent_name:
+                policy_notes.append(
+                    "Policy fallback: weather specialist unavailable; responding directly."
+                )
+                return {
+                    **state,
+                    "policy_notes": policy_notes,
+                    "policy_route": "respond",
+                    "final_decision": state.get("final_decision"),
+                }
+            policy_notes.append(
+                "Policy: awaiting weather data before continuing with the plan."
+            )
+            return {
+                **state,
+                "policy_notes": policy_notes,
+                "policy_route": "fetch_weather",
+            }
+
+        if state.get("need_airbnb"):
+            weather_output = state.get("weather_output") or ""
+            if not weather_output:
+                policy_notes.append(
+                    "Policy: weather result missing, re-requesting from specialist."
+                )
+                return {
+                    **state,
+                    "policy_notes": policy_notes,
+                    "policy_route": "fetch_weather",
+                }
+            if self._policy_manager.should_block_rentals(weather_output):
+                policy_notes.append(
+                    "Policy: hazardous conditions detected, pausing Airbnb guidance."
+                )
+                return {
+                    **state,
+                    "policy_notes": policy_notes,
+                    "policy_route": "deny_airbnb",
+                    "final_decision": "deny_airbnb",
+                }
+            if not self._airbnb_agent_name:
+                policy_notes.append(
+                    "Policy fallback: Airbnb specialist unavailable, sharing weather only."
+                )
+                return {
+                    **state,
+                    "policy_notes": policy_notes,
+                    "policy_route": "respond",
+                    "final_decision": "allow_airbnb",
+                }
+            policy_notes.append(
+                "Policy: weather looks acceptable, gathering Airbnb suggestions."
+            )
+            return {
+                **state,
+                "policy_notes": policy_notes,
+                "policy_route": "fetch_airbnb",
+                "final_decision": "allow_airbnb",
+            }
+
+        return {
+            **state,
+            "policy_notes": policy_notes,
+            "policy_route": "respond",
+            "final_decision": state.get("final_decision"),
+        }
+
+    def _route_policy(self, state: HostGraphState) -> str:
+        return state.get("policy_route", "respond")
+
+    async def _fetch_weather(self, state: HostGraphState) -> HostGraphState:
+        responses = list(state.get("response_chunks", []))
+        session_id = state["session_id"]
+        agent_name = self._weather_agent_name
+        if not agent_name:
+            responses.append("Weather specialist is offline right now.")
+            return {**state, "response_chunks": responses, "weather_output": ""}
+
+        location = state.get("location_hint")
+        location_text = f" for {location}" if location else ""
+        task_prompt = (
+            "You are assisting a travel policy review. "
+            "Provide a concise forecast highlighting any safety risks.\n"
+            f"User request:{os.linesep}{state['user_message']}"
+        )
+        task = await self._send_message(agent_name, task_prompt, session_id)
+        weather_output = self._extract_task_output(task)
+
+        if weather_output:
+            responses.append(
+                f"Weather outlook{location_text}:\n{weather_output.strip()}"
+            )
+        else:
+            responses.append(
+                f"I could not retrieve a weather update{location_text or ''}."
+            )
+
+        return {
+            **state,
+            "response_chunks": responses,
+            "weather_output": weather_output,
+        }
+
+    async def _fetch_airbnb(self, state: HostGraphState) -> HostGraphState:
+        responses = list(state.get("response_chunks", []))
+        session_id = state["session_id"]
+        agent_name = self._airbnb_agent_name
+        if not agent_name:
+            responses.append("Airbnb specialist is offline right now.")
+            return {**state, "response_chunks": responses, "airbnb_output": ""}
+
+        task_prompt = (
+            "The host assistant cleared the weather policy check and now needs "
+            "fictional Airbnb ideas. Use the weather summary below to tailor your reply.\n"
+            f"Weather summary:{os.linesep}{state.get('weather_output', 'Not available')}\n"
+            f"User request:{os.linesep}{state['user_message']}"
+        )
+        task = await self._send_message(agent_name, task_prompt, session_id)
+        airbnb_output = self._extract_task_output(task)
+
+        if airbnb_output:
+            responses.append(f"Airbnb ideas:\n{airbnb_output.strip()}")
+        else:
+            responses.append("The Airbnb specialist did not return any options.")
+
+        return {
+            **state,
+            "response_chunks": responses,
+            "airbnb_output": airbnb_output,
+        }
+
+    def _compose_response(self, state: HostGraphState) -> HostGraphState:
+        responses = list(state.get("response_chunks", []))
+        policy_notes = state.get("policy_notes", [])
+        need_airbnb = state.get("need_airbnb", False)
+        final_decision = state.get("final_decision")
+        weather_output = state.get("weather_output")
+
+        summary_lines: list[str] = []
+        if need_airbnb and final_decision == "deny_airbnb":
+            summary_lines.append(
+                "Because the forecast includes hazardous conditions, I'm pausing Airbnb "
+                "recommendations. Consider alternate dates or destinations."
+            )
+        elif need_airbnb and state.get("airbnb_output"):
+            summary_lines.append(
+                "Here are some rental ideas that align with the current forecast."
+            )
+        elif weather_output:
+            summary_lines.append("Let me know if you need help planning activities around this weather outlook.")
+        else:
+            summary_lines.append(
+                "I can coordinate weather checks and Airbnb planning whenever you're ready."
+            )
+
+        if policy_notes:
+            summary_lines.append("Policy summary:")
+            summary_lines.extend(f"- {note}" for note in policy_notes)
+
+        responses.append("\n".join(summary_lines))
+
+        return {**state, "response_chunks": responses}
 
 
 async def initialize_routing_agent() -> RoutingAgent:
